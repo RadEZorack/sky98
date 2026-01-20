@@ -70,3 +70,6 @@ This project is currently released without an open-source license.
 
 All rights are reserved by the authors.  
 Licensing terms will be defined in a future release.
+
+## Learn More
+https://www.youtube.com/playlist?list=PLAetx6mjn-MBd9dukODyJPW5R7VQxtQug
