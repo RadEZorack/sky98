@@ -1,0 +1,23 @@
+[package]
+name = "sky98"
+version = "0.1.0"
+edition = "2021"
+
+authors = ["Sky98 Research Group"]
+description = "Sky98: Matrix-based Proof-of-Work research prototype"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/yourname/sky98"
+readme = "README.md"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[dependencies]
+# Intentionally empty for MVP
+# (std only, fully deterministic)
+
+[dev-dependencies]
+# Also empty for now
