@@ -26,19 +26,22 @@ impl Mask {
     /// simple hash of (index XOR seed).
     pub fn apply(&self, matrix: &mut Matrix) {
         let n = matrix.n;
-        let mut state = self.seed;
 
         for i in 0..n {
             for j in 0..n {
-                // Deterministic pseudo-random bit
-                state = mix(state ^ ((i * n + j) as u64));
-
                 // Use lowest bit as mask decision
-                if (state & 1) == 0 {
+                if !self.keep_cell(n, i, j) {
                     matrix.set(i, j, 0);
                 }
             }
         }
+    }
+
+    /// Return whether the cell at (i, j) survives masking.
+    #[inline]
+    pub fn keep_cell(&self, n: usize, i: usize, j: usize) -> bool {
+        let state = mix(self.seed ^ ((i * n + j) as u64));
+        (state & 1) == 1
     }
 }
 
@@ -97,5 +100,29 @@ mod tests {
 
         let non_zero_count = m.data.iter().filter(|&&x| x != 0).count();
         assert!(non_zero_count > 0);
+    }
+
+    #[test]
+    fn test_keep_cell_matches_apply() {
+        let mut m = Matrix::from_vec(3, vec![
+            10, 11, 12,
+            13, 14, 15,
+            16, 17, 18,
+        ]);
+        let original = m.clone();
+        let mask = Mask::new(4242);
+
+        mask.apply(&mut m);
+
+        for i in 0..m.n {
+            for j in 0..m.n {
+                let expected = if mask.keep_cell(m.n, i, j) {
+                    original.get(i, j)
+                } else {
+                    0
+                };
+                assert_eq!(m.get(i, j), expected);
+            }
+        }
     }
 }

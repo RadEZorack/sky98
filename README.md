@@ -8,7 +8,7 @@ integer matrix operations inspired by modern machine learning workloads.
 
 This repository contains:
 - A full Rust implementation of the Sky98 PoW
-- A probabilistic verifier with strong cost asymmetry
+- A probabilistic verifier for the full round transition
 - A CLI miner/verifier for experimentation
 
 ---
@@ -26,6 +26,11 @@ Sky98 replaces hash-based PoW with:
 - Efficient spot verification
 - Hardware-aligned workloads (CPU / GPU / TPU)
 
+The project goal is not ASIC resistance forever.
+The longer-term idea is to reward broadly available compute first, then let
+specialized hardware emerge around workloads that are closer to AI systems than
+traditional hash-only mining.
+
 ---
 
 ## Project Status
@@ -36,6 +41,7 @@ This codebase:
 - Is deterministic and consensus-safe
 - Is NOT a full blockchain
 - Is intended for experimentation, benchmarking, and research discussion
+- Does NOT yet prove that the intended computation is the cheapest way to win
 
 ---
 
@@ -63,6 +69,17 @@ src/
 This project is experimental research software.
 No security guarantees are provided.
 Do not use in production systems.
+
+## Research Direction
+
+Sky98 is best understood as a useful-work PoW candidate, not a finished
+consensus primitive.
+
+Open questions include:
+- Can the full computation be verified cheaply and soundly?
+- Can the workload remain open to general-purpose hardware early on?
+- If specialization appears, does it advance useful AI-oriented compute?
+- Can the work eventually be coupled to genuinely useful ML tasks?
 
 ## License
 
