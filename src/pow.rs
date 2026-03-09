@@ -9,6 +9,16 @@ pub struct PowParams {
     pub rounds: usize,      // r
 }
 
+/// A deterministic summary of completed work.
+///
+/// The commitment is a lightweight stand-in for a future cryptographic digest.
+/// The score is a toy ranking rule used by the demo harness.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkResult {
+    pub commitment: u64,
+    pub score: u32,
+}
+
 /// A minimal seed representation for the PoW
 ///
 /// In the MVP, we treat this as an opaque 64-bit value.
@@ -93,6 +103,28 @@ pub fn sky98_pow(
     a
 }
 
+/// Compute a compact work summary from a completed matrix result.
+///
+/// This is intentionally simple for the MVP. A real network would replace the
+/// commitment with a cryptographic digest and likely derive scoring from that.
+pub fn summarize_work(matrix: &Matrix) -> WorkResult {
+    let commitment = commit_matrix(matrix);
+    let score = commitment.leading_zeros();
+
+    WorkResult { commitment, score }
+}
+
+/// Execute a full work unit and return both the final matrix and its summary.
+pub fn evaluate_work(
+    seed: Seed,
+    nonce: u64,
+    params: &PowParams,
+) -> (Matrix, WorkResult) {
+    let matrix = sky98_pow(seed, nonce, params);
+    let summary = summarize_work(&matrix);
+    (matrix, summary)
+}
+
 /// Tiny deterministic mixing function used for seed expansion
 #[inline]
 fn mix(mut x: u64) -> u64 {
@@ -100,6 +132,19 @@ fn mix(mut x: u64) -> u64 {
     x ^= x >> 7;
     x ^= x << 17;
     x
+}
+
+/// Deterministically fold a matrix into a 64-bit commitment.
+#[inline]
+fn commit_matrix(matrix: &Matrix) -> u64 {
+    let mut state = 0x6A09E667F3BCC909u64 ^ (matrix.n as u64);
+
+    for &value in &matrix.data {
+        state ^= value as u64;
+        state = mix(state.rotate_left(9).wrapping_mul(0x9E3779B97F4A7C15));
+    }
+
+    state
 }
 
 #[cfg(test)]
@@ -151,5 +196,35 @@ mod tests {
 
         let non_zero = out.data.iter().any(|&x| x != 0);
         assert!(non_zero);
+    }
+
+    #[test]
+    fn test_summarize_work_is_deterministic() {
+        let params = PowParams {
+            matrix_size: 4,
+            rounds: 2,
+        };
+        let seed = Seed { value: 1001 };
+        let nonce = 9;
+
+        let matrix = sky98_pow(seed, nonce, &params);
+        let s1 = summarize_work(&matrix);
+        let s2 = summarize_work(&matrix);
+
+        assert_eq!(s1, s2);
+    }
+
+    #[test]
+    fn test_evaluate_work_changes_with_nonce() {
+        let params = PowParams {
+            matrix_size: 4,
+            rounds: 2,
+        };
+        let seed = Seed { value: 2024 };
+
+        let (_, a) = evaluate_work(seed, 1, &params);
+        let (_, b) = evaluate_work(seed, 2, &params);
+
+        assert_ne!(a.commitment, b.commitment);
     }
 }

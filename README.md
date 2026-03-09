@@ -1,15 +1,15 @@
 # Sky98
 
-Sky98 is a research prototype of a **matrix-based Proof-of-Work (PoW) system**
-designed to align blockchain consensus with **AI- and TPU-relevant computation**.
+Sky98 is a research prototype for a **transparent compute network** built around
+matrix-based useful work.
 
-Instead of hash grinding, Sky98 miners perform deterministic, irreducible
-integer matrix operations inspired by modern machine learning workloads.
+Instead of hash grinding, Sky98 workers perform deterministic integer matrix
+operations inspired by modern machine learning workloads.
 
 This repository contains:
-- A full Rust implementation of the Sky98 PoW
+- A full Rust implementation of the Sky98 work pipeline
 - A probabilistic verifier for the full round transition
-- A CLI miner/verifier for experimentation
+- A CLI search/verifier harness for experimentation
 
 ---
 
@@ -26,10 +26,12 @@ Sky98 replaces hash-based PoW with:
 - Efficient spot verification
 - Hardware-aligned workloads (CPU / GPU / TPU)
 
-The project goal is not ASIC resistance forever.
-The longer-term idea is to reward broadly available compute first, then let
-specialized hardware emerge around workloads that are closer to AI systems than
-traditional hash-only mining.
+The project goal is not perpetual ASIC resistance.
+The intended path is:
+- let ordinary hardware participate early
+- let specialization emerge later if it advances useful AI-oriented compute
+- keep the network transparent rather than anonymous
+- treat blockchain consensus as optional rather than mandatory
 
 ---
 
@@ -43,9 +45,14 @@ This codebase:
 - Is intended for experimentation, benchmarking, and research discussion
 - Does NOT yet prove that the intended computation is the cheapest way to win
 
+The current code is best viewed as:
+- a useful-work primitive
+- a testbed for probabilistic verification
+- a possible building block for either a blockchain or a centralized compute market
+
 ---
 
-## Running the CLI Miner
+## Running the Demo
 
 ```bash
 cargo run --release
@@ -57,11 +64,11 @@ cargo test
 
 ## Structure
 src/
-├── main.rs     # CLI miner + verifier
+├── main.rs     # CLI work search + verifier demo
 ├── matrix.rs   # Deterministic matrix operations
 ├── sigma.rs    # Non-linear σ operator
 ├── mask.rs     # Deterministic structural masking
-├── pow.rs      # Core PoW pipeline
+├── pow.rs      # Core useful-work pipeline
 └── verify.rs   # Probabilistic verifier
 
 ## Disclaimer
@@ -72,7 +79,7 @@ Do not use in production systems.
 
 ## Research Direction
 
-Sky98 is best understood as a useful-work PoW candidate, not a finished
+Sky98 is best understood as a useful-work system candidate, not a finished
 consensus primitive.
 
 Open questions include:
@@ -80,6 +87,17 @@ Open questions include:
 - Can the workload remain open to general-purpose hardware early on?
 - If specialization appears, does it advance useful AI-oriented compute?
 - Can the work eventually be coupled to genuinely useful ML tasks?
+
+## Possible Deployment Models
+
+1. Blockchain network
+   Workers search for acceptable work results and the chain settles rewards.
+2. Transparent centralized network
+   Workers submit work claims to a coordinator and a background verifier accepts,
+   rejects, or reprices them.
+3. Hybrid compute market
+   A simple ledger handles accounting while separate services handle useful work,
+   model training, and hardware benchmarking.
 
 ## License
 

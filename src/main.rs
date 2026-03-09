@@ -4,7 +4,7 @@ mod mask;
 mod pow;
 mod verify;
 
-use pow::{sky98_pow, PowParams, Seed};
+use pow::{evaluate_work, PowParams, Seed};
 use verify::verify_random_cells;
 use std::time::{Instant};
 
@@ -12,10 +12,11 @@ fn main() {
     // -----------------------------
     // CLI-style parameters (MVP)
     // -----------------------------
-    let matrix_size: usize = 64;   // try 32, 64, 128
-    let rounds: usize = 4;         // PoW depth
-    let max_nonce: u64 = 1_000;    // mining attempts
-    let verify_checks: usize = 8;  // verifier security
+    let matrix_size: usize = 64;      // try 32, 64, 128
+    let rounds: usize = 4;            // work depth
+    let max_nonce: u64 = 1_000;       // search attempts in demo mode
+    let verify_checks: usize = 8;     // verifier security
+    let target_score: u32 = 16;       // demo acceptance threshold
 
     let seed = Seed { value: 0xDEADBEEFCAFEBABE };
 
@@ -24,40 +25,40 @@ fn main() {
         rounds,
     };
 
-    println!("Sky98 CLI Miner");
+    println!("Sky98 Compute Network Demo");
     println!("-----------------------------");
     println!("Matrix size : {}", matrix_size);
     println!("Rounds      : {}", rounds);
-    println!("Max nonce   : {}", max_nonce);
+    println!("Max attempts: {}", max_nonce);
     println!("Verify checks: {}", verify_checks);
+    println!("Target score: {}", target_score);
     println!("-----------------------------");
 
     // -----------------------------
-    // Mining loop
+    // Work search loop
     // -----------------------------
     let start = Instant::now();
 
     for nonce in 0..max_nonce {
         let pow_start = Instant::now();
 
-        let result = sky98_pow(seed, nonce, &params);
+        let (result, summary) = evaluate_work(seed, nonce, &params);
 
         let pow_time = pow_start.elapsed();
 
-        // --- Simulated "difficulty check"
-        // For MVP: arbitrary rule (real chain would hash & compare)
-        let score = result.data[0];
-
-        if score & 0xFFFF == 0 {
-            println!("✔ Found candidate!");
-            println!("Nonce: {}", nonce);
-            println!("Score: 0x{:08x}", score);
-            println!("PoW time: {:.2?}", pow_time);
+        // Demo ranking rule:
+        // lower-probability commitments receive higher scores.
+        if summary.score >= target_score {
+            println!("✔ Found accepted work candidate");
+            println!("Attempt: {}", nonce);
+            println!("Commitment: 0x{:016x}", summary.commitment);
+            println!("Score: {}", summary.score);
+            println!("Compute time: {:.2?}", pow_time);
 
             // -----------------------------
             // Verification step
             // -----------------------------
-            println!("Verifying...");
+            println!("Verifying sampled round transitions...");
 
             // Recompute previous round matrices for verification
             let (a0, b0) = pow::seed_to_matrices(seed, nonce, matrix_size);
@@ -87,6 +88,8 @@ fn main() {
 
             if valid {
                 println!("✔ Verification PASSED");
+                let recomputed = pow::summarize_work(&result);
+                println!("Recomputed commitment: 0x{:016x}", recomputed.commitment);
             } else {
                 println!("✘ Verification FAILED");
             }
@@ -96,7 +99,7 @@ fn main() {
 
         if nonce % 50 == 0 {
             println!(
-                "Nonce {:4} | last attempt {:.2?}",
+                "Attempt {:4} | last run {:.2?}",
                 nonce,
                 pow_time
             );
