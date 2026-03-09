@@ -42,9 +42,24 @@ pub fn verify_mul_cell(
 ///   C[i, j] == Mask(seed_round, i, j) * σ( sum_k A[i, k] * B[k, j] )
 ///
 /// This matches the round transition in `sky98_pow`.
+#[allow(dead_code)]
 pub fn verify_round_cell(
     a_prev: &Matrix,
     b_prev: &Matrix,
+    c_claimed: &Matrix,
+    round_seed: u64,
+    i: usize,
+    j: usize,
+) -> bool {
+    verify_round_cell_shifted(a_prev, b_prev, 0, c_claimed, round_seed, i, j)
+}
+
+/// Verify a single full round output cell when `b_prev` is viewed through a
+/// deterministic column shift instead of materializing a permuted matrix.
+pub fn verify_round_cell_shifted(
+    a_prev: &Matrix,
+    b_prev: &Matrix,
+    b_col_shift: usize,
     c_claimed: &Matrix,
     round_seed: u64,
     i: usize,
@@ -57,8 +72,9 @@ pub fn verify_round_cell(
     let mut acc: Scalar = 0;
 
     for k in 0..n {
+        let shifted_j = (j + b_col_shift) % n;
         acc = acc.wrapping_add(
-            a_prev.get(i, k).wrapping_mul(b_prev.get(k, j)),
+            a_prev.get(i, k).wrapping_mul(b_prev.get(k, shifted_j)),
         );
     }
 
@@ -88,6 +104,27 @@ pub fn verify_random_cells(
     challenge_seed: u64,
     checks: usize,
 ) -> bool {
+    verify_random_cells_shifted(
+        a_prev,
+        b_prev,
+        0,
+        c_claimed,
+        round_seed,
+        challenge_seed,
+        checks,
+    )
+}
+
+/// Verify multiple sampled cells while treating `b_prev` as logically shifted.
+pub fn verify_random_cells_shifted(
+    a_prev: &Matrix,
+    b_prev: &Matrix,
+    b_col_shift: usize,
+    c_claimed: &Matrix,
+    round_seed: u64,
+    challenge_seed: u64,
+    checks: usize,
+) -> bool {
     let n = a_prev.n;
     let mut state = challenge_seed;
 
@@ -98,7 +135,15 @@ pub fn verify_random_cells(
         state = mix(state);
         let j = (state as usize) % n;
 
-        if !verify_round_cell(a_prev, b_prev, c_claimed, round_seed, i, j) {
+        if !verify_round_cell_shifted(
+            a_prev,
+            b_prev,
+            b_col_shift,
+            c_claimed,
+            round_seed,
+            i,
+            j,
+        ) {
             return false;
         }
     }
@@ -172,6 +217,29 @@ mod tests {
 
         assert!(verify_round_cell(&a, &b, &c, seed, 0, 0));
         assert!(verify_round_cell(&a, &b, &c, seed, 1, 1));
+    }
+
+    #[test]
+    fn test_verify_round_cell_shifted_matches_permute() {
+        let a = Matrix::from_vec(3, vec![
+            1, 2, 3,
+            4, 5, 6,
+            7, 8, 9,
+        ]);
+        let b = Matrix::from_vec(3, vec![
+            9, 8, 7,
+            6, 5, 4,
+            3, 2, 1,
+        ]);
+        let b_shifted = b.permute();
+        let seed = 101;
+
+        let mut c = a.mul(&b_shifted);
+        c.map_inplace(sigma);
+        Mask::new(seed).apply(&mut c);
+
+        assert!(verify_round_cell_shifted(&a, &b, 1, &c, seed, 0, 0));
+        assert!(verify_round_cell_shifted(&a, &b, 1, &c, seed, 2, 1));
     }
 
     #[test]

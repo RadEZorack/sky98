@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use crate::compute::{compute_backend_from_kind, ComputeBackendKind};
 use crate::pow::{summarize_work, PowParams, Seed, WorkTrace};
-use crate::verify::{derive_challenge_seed, verify_random_cells};
+use crate::verify_backend::{verify_trace_with_backend, VerifyBackendKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
@@ -68,27 +68,36 @@ pub fn benchmark_compute_phase(
 }
 
 pub fn benchmark_trace_verify_phase(
+    backend_kind: VerifyBackendKind,
     seed: Seed,
     nonce: u64,
     trace: &WorkTrace,
     verify_checks: usize,
     verifier_secret: u64,
     iterations: usize,
-) -> PhaseMeasurement {
+) -> Result<PhaseMeasurement, String> {
     assert!(iterations > 0, "iterations must be > 0");
 
     let mut total = Duration::ZERO;
+    let mut backend = Backend::Cpu;
 
     for _ in 0..iterations {
         let start = Instant::now();
-        verify_trace(seed, nonce, trace, verify_checks, verifier_secret);
+        backend = verify_trace_with_backend(
+            backend_kind,
+            seed,
+            nonce,
+            trace,
+            verify_checks,
+            verifier_secret,
+        )?;
         total += start.elapsed();
     }
 
-    PhaseMeasurement {
-        backend: Backend::Cpu,
+    Ok(PhaseMeasurement {
+        backend,
         time: total / iterations as u32,
-    }
+    })
 }
 
 /// Measure full work execution against sampled verification over a stored trace.
@@ -97,6 +106,7 @@ pub fn benchmark_trace_verify_phase(
 /// backends can swap into the compute path without changing the report shape.
 pub fn benchmark_compute_vs_trace_verify(
     compute_backend: ComputeBackendKind,
+    verify_backend: VerifyBackendKind,
     seed: Seed,
     nonce: u64,
     params: &PowParams,
@@ -107,17 +117,18 @@ pub fn benchmark_compute_vs_trace_verify(
     let (trace, compute) =
         benchmark_compute_phase(compute_backend, seed, nonce, params, iterations)?;
     let verify = benchmark_trace_verify_phase(
+        verify_backend,
         seed,
         nonce,
         &trace,
         verify_checks,
         verifier_secret,
         iterations,
-    );
+    )?;
     let final_commitment = trace
-        .rounds
+        .round_commitments
         .last()
-        .map(|matrix| summarize_work(matrix).commitment)
+        .copied()
         .unwrap_or_else(|| summarize_work(&trace.a0).commitment);
 
     let ratio = if verify.time.is_zero() {
@@ -132,40 +143,4 @@ pub fn benchmark_compute_vs_trace_verify(
         ratio,
         final_commitment,
     })
-}
-
-pub fn verify_trace(
-    seed: Seed,
-    nonce: u64,
-    trace: &WorkTrace,
-    verify_checks: usize,
-    verifier_secret: u64,
-) {
-    let mut a = trace.a0.clone();
-    let mut b = trace.b0.clone();
-
-    for (round, c) in trace.rounds.iter().enumerate() {
-        let round_seed = seed.round_nonce_seed(round, nonce);
-        let round_commitment = summarize_work(c).commitment;
-        let challenge_seed = derive_challenge_seed(
-            round_seed,
-            round_commitment,
-            verifier_secret,
-        );
-
-        assert!(
-            verify_random_cells(
-                &a,
-                &b,
-                c,
-                round_seed,
-                challenge_seed,
-                verify_checks,
-            ),
-            "trace verification failed during benchmark",
-        );
-
-        a = c.clone();
-        b = c.permute();
-    }
 }

@@ -24,6 +24,7 @@ pub struct WorkTrace {
     pub a0: Matrix,
     pub b0: Matrix,
     pub rounds: Vec<Matrix>,
+    pub round_commitments: Vec<u64>,
 }
 
 /// A minimal seed representation for the PoW
@@ -118,6 +119,7 @@ pub fn sky98_trace(
     let mut a = a0.clone();
     let mut b = b0.clone();
     let mut round_outputs = Vec::with_capacity(rounds);
+    let mut round_commitments = Vec::with_capacity(rounds);
 
     for round in 0..rounds {
         let mut c = a.mul(&b);
@@ -128,6 +130,7 @@ pub fn sky98_trace(
 
         a = c.clone();
         b = c.permute();
+        round_commitments.push(summarize_work(&c).commitment);
         round_outputs.push(c);
     }
 
@@ -135,6 +138,7 @@ pub fn sky98_trace(
         a0,
         b0,
         rounds: round_outputs,
+        round_commitments,
     }
 }
 

@@ -5,12 +5,13 @@ mod sigma;
 mod mask;
 mod pow;
 mod verify;
+mod verify_backend;
 
 use bench::benchmark_compute_vs_trace_verify;
 use compute::{compute_backend_from_kind, ComputeBackendKind};
 use pow::{PowParams, Seed};
 use std::env;
-use verify::{derive_challenge_seed, verify_random_cells};
+use verify_backend::{verify_trace_with_backend, VerifyBackendKind};
 use std::time::{Instant};
 
 fn main() {
@@ -25,6 +26,7 @@ fn main() {
     let benchmark_iterations: usize = env_parse("SKY98_BENCH_ITERS", 5);
     let verifier_secret: u64 = env_parse("SKY98_VERIFIER_SECRET", 0xA11CE5EED1234567);
     let compute_backend = env_compute_backend("SKY98_COMPUTE_BACKEND", ComputeBackendKind::Cpu);
+    let verify_backend = env_verify_backend("SKY98_VERIFY_BACKEND", VerifyBackendKind::Cpu);
     let report_mode = env_flag("SKY98_REPORT");
 
     let seed = Seed { value: 0xDEADBEEFCAFEBABE };
@@ -32,6 +34,7 @@ fn main() {
     if report_mode {
         run_report_mode(
             compute_backend,
+            verify_backend,
             seed,
             verify_checks,
             benchmark_iterations,
@@ -54,10 +57,12 @@ fn main() {
     println!("Target score: {}", target_score);
     println!("Benchmark iters: {}", benchmark_iterations);
     println!("Compute backend: {}", compute_backend_label(compute_backend));
+    println!("Verify backend: {}", verify_backend_label(verify_backend));
     println!("-----------------------------");
 
     let benchmark = benchmark_compute_vs_trace_verify(
         compute_backend,
+        verify_backend,
         seed,
         0,
         &params,
@@ -116,35 +121,15 @@ fn main() {
             println!("Verifying sampled round transitions...");
 
             // Recompute previous round matrices for verification
-            let mut a = trace.a0.clone();
-            let mut b = trace.b0.clone();
-
-            let mut valid = true;
-
-            for (round, c) in trace.rounds.iter().enumerate() {
-                let round_seed = seed.round_nonce_seed(round, nonce);
-                let round_commitment = pow::summarize_work(&c).commitment;
-                let challenge_seed = derive_challenge_seed(
-                    round_seed,
-                    round_commitment,
-                    verifier_secret,
-                );
-
-                if !verify_random_cells(
-                    &a,
-                    &b,
-                    c,
-                    round_seed,
-                    challenge_seed,
-                    verify_checks,
-                ) {
-                    valid = false;
-                    break;
-                }
-
-                a = c.clone();
-                b = c.permute();
-            }
+            let valid = verify_trace_with_backend(
+                verify_backend,
+                seed,
+                nonce,
+                &trace,
+                verify_checks,
+                verifier_secret,
+            )
+            .is_ok();
 
             if valid {
                 println!("✔ Verification PASSED");
@@ -196,6 +181,16 @@ fn env_compute_backend(
         .unwrap_or(default)
 }
 
+fn env_verify_backend(
+    key: &str,
+    default: VerifyBackendKind,
+) -> VerifyBackendKind {
+    env::var(key)
+        .ok()
+        .and_then(|value| VerifyBackendKind::from_env(value.trim()))
+        .unwrap_or(default)
+}
+
 fn env_parse_list<T>(key: &str, default: &[T]) -> Vec<T>
 where
     T: std::str::FromStr + Copy,
@@ -219,6 +214,7 @@ where
 
 fn run_report_mode(
     compute_backend: ComputeBackendKind,
+    verify_backend: VerifyBackendKind,
     seed: Seed,
     verify_checks: usize,
     benchmark_iterations: usize,
@@ -226,56 +222,61 @@ fn run_report_mode(
 ) {
     let matrix_sizes = env_parse_list("SKY98_REPORT_MATRIX_SIZES", &[128usize, 192, 256, 320]);
     let rounds_list = env_parse_list("SKY98_REPORT_ROUNDS", &[4usize, 8, 12]);
+    let verify_checks_list = env_parse_list("SKY98_REPORT_VERIFY_CHECKS", &[verify_checks]);
     let nonce: u64 = env_parse("SKY98_REPORT_NONCE", 0);
 
     println!("Sky98 Benchmark Report");
     println!(
         "backend={} verify_checks={} bench_iters={} nonce={}",
         compute_backend_label(compute_backend),
-        verify_checks,
-        benchmark_iterations,
-        nonce
+        verify_checks, benchmark_iterations, nonce
     );
+    println!("verify_backend={}", verify_backend_label(verify_backend));
     println!();
     println!(
-        "{:<8} {:<8} {:<16} {:<16} {:<10} {:<8} {:<8}",
+        "{:<8} {:<8} {:<8} {:<16} {:<16} {:<10} {:<8} {:<8}",
         "matrix",
         "rounds",
+        "checks",
         "compute",
         "verify",
         "ratio",
         "c_be",
         "v_be"
     );
-    println!("{}", "-".repeat(82));
+    println!("{}", "-".repeat(92));
 
     for matrix_size in matrix_sizes {
         for rounds in &rounds_list {
-            let params = PowParams {
-                matrix_size,
-                rounds: *rounds,
-            };
-            let result = benchmark_compute_vs_trace_verify(
-                compute_backend,
-                seed,
-                nonce,
-                &params,
-                verify_checks,
-                verifier_secret,
-                benchmark_iterations,
-            )
-            .unwrap_or_else(|err| panic!("report benchmark failed: {}", err));
+            for checks in &verify_checks_list {
+                let params = PowParams {
+                    matrix_size,
+                    rounds: *rounds,
+                };
+                let result = benchmark_compute_vs_trace_verify(
+                    compute_backend,
+                    verify_backend,
+                    seed,
+                    nonce,
+                    &params,
+                    *checks,
+                    verifier_secret,
+                    benchmark_iterations,
+                )
+                .unwrap_or_else(|err| panic!("report benchmark failed: {}", err));
 
-            println!(
-                "{:<8} {:<8} {:<16} {:<16} {:<10.1} {:<8} {:<8}",
-                matrix_size,
-                rounds,
-                format_duration(result.compute.time),
-                format_duration(result.verify.time),
-                result.ratio,
-                result.compute.backend.label(),
-                result.verify.backend.label(),
-            );
+                println!(
+                    "{:<8} {:<8} {:<8} {:<16} {:<16} {:<10.1} {:<8} {:<8}",
+                    matrix_size,
+                    rounds,
+                    checks,
+                    format_duration(result.compute.time),
+                    format_duration(result.verify.time),
+                    result.ratio,
+                    result.compute.backend.label(),
+                    result.verify.backend.label(),
+                );
+            }
         }
     }
 }
@@ -284,6 +285,13 @@ fn compute_backend_label(kind: ComputeBackendKind) -> &'static str {
     match kind {
         ComputeBackendKind::Cpu => "cpu",
         ComputeBackendKind::Metal => "metal",
+    }
+}
+
+fn verify_backend_label(kind: VerifyBackendKind) -> &'static str {
+    match kind {
+        VerifyBackendKind::Cpu => "cpu",
+        VerifyBackendKind::Metal => "metal",
     }
 }
 
