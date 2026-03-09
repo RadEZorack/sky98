@@ -10,6 +10,7 @@ use crate::sigma::sigma;
 /// This is O(n) work and can be used as a probabilistic spot-check.
 ///
 /// Returns true if the cell is valid.
+#[allow(dead_code)]
 pub fn verify_mul_cell(
     a_prev: &Matrix,
     b_prev: &Matrix,

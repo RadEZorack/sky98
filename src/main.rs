@@ -7,6 +7,7 @@ mod verify;
 
 use bench::benchmark_compute_vs_trace_verify;
 use pow::{evaluate_work, PowParams, Seed};
+use std::env;
 use verify::{derive_challenge_seed, verify_random_cells};
 use std::time::{Instant};
 
@@ -14,12 +15,13 @@ fn main() {
     // -----------------------------
     // CLI-style parameters (MVP)
     // -----------------------------
-    let matrix_size: usize = 64;      // try 32, 64, 128
-    let rounds: usize = 4;            // work depth
-    let max_nonce: u64 = 1_000;       // search attempts in demo mode
-    let verify_checks: usize = 8;     // verifier security
-    let target_score: u32 = 16;       // demo acceptance threshold
-    let verifier_secret: u64 = 0xA11CE5EED1234567;
+    let matrix_size: usize = env_parse("SKY98_MATRIX_SIZE", 64);
+    let rounds: usize = env_parse("SKY98_ROUNDS", 4);
+    let max_nonce: u64 = env_parse("SKY98_MAX_NONCE", 1_000);
+    let verify_checks: usize = env_parse("SKY98_VERIFY_CHECKS", 8);
+    let target_score: u32 = env_parse("SKY98_TARGET_SCORE", 16);
+    let benchmark_iterations: usize = env_parse("SKY98_BENCH_ITERS", 5);
+    let verifier_secret: u64 = env_parse("SKY98_VERIFIER_SECRET", 0xA11CE5EED1234567);
 
     let seed = Seed { value: 0xDEADBEEFCAFEBABE };
 
@@ -35,6 +37,7 @@ fn main() {
     println!("Max attempts: {}", max_nonce);
     println!("Verify checks: {}", verify_checks);
     println!("Target score: {}", target_score);
+    println!("Benchmark iters: {}", benchmark_iterations);
     println!("-----------------------------");
 
     let benchmark = benchmark_compute_vs_trace_verify(
@@ -43,11 +46,19 @@ fn main() {
         &params,
         verify_checks,
         verifier_secret,
-        5,
+        benchmark_iterations,
     );
-    println!("Benchmark (avg over 5 runs)");
-    println!("Compute time: {:.2?}", benchmark.compute_time);
-    println!("Verify time: {:.2?}", benchmark.verify_time);
+    println!("Benchmark (avg over {} runs)", benchmark_iterations);
+    println!(
+        "Compute [{}]: {:.2?}",
+        benchmark.compute.backend.label(),
+        benchmark.compute.time
+    );
+    println!(
+        "Verify [{}]: {:.2?}",
+        benchmark.verify.backend.label(),
+        benchmark.verify.time
+    );
     println!("Compute/verify ratio: {:.1}x", benchmark.ratio);
     println!("Trace commitment: 0x{:016x}", benchmark.final_commitment);
     println!("-----------------------------");
@@ -135,4 +146,14 @@ fn main() {
 
     println!("-----------------------------");
     println!("Total elapsed: {:.2?}", start.elapsed());
+}
+
+fn env_parse<T>(key: &str, default: T) -> T
+where
+    T: std::str::FromStr + Copy,
+{
+    env::var(key)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(default)
 }
