@@ -1,9 +1,11 @@
+mod bench;
 mod matrix;
 mod sigma;
 mod mask;
 mod pow;
 mod verify;
 
+use bench::benchmark_compute_vs_trace_verify;
 use pow::{evaluate_work, PowParams, Seed};
 use verify::{derive_challenge_seed, verify_random_cells};
 use std::time::{Instant};
@@ -33,6 +35,21 @@ fn main() {
     println!("Max attempts: {}", max_nonce);
     println!("Verify checks: {}", verify_checks);
     println!("Target score: {}", target_score);
+    println!("-----------------------------");
+
+    let benchmark = benchmark_compute_vs_trace_verify(
+        seed,
+        0,
+        &params,
+        verify_checks,
+        verifier_secret,
+        5,
+    );
+    println!("Benchmark (avg over 5 runs)");
+    println!("Compute time: {:.2?}", benchmark.compute_time);
+    println!("Verify time: {:.2?}", benchmark.verify_time);
+    println!("Compute/verify ratio: {:.1}x", benchmark.ratio);
+    println!("Trace commitment: 0x{:016x}", benchmark.final_commitment);
     println!("-----------------------------");
 
     // -----------------------------

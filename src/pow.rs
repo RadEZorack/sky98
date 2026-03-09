@@ -19,6 +19,13 @@ pub struct WorkResult {
     pub score: u32,
 }
 
+#[derive(Debug, Clone)]
+pub struct WorkTrace {
+    pub a0: Matrix,
+    pub b0: Matrix,
+    pub rounds: Vec<Matrix>,
+}
+
 /// A minimal seed representation for the PoW
 ///
 /// In the MVP, we treat this as an opaque 64-bit value.
@@ -89,28 +96,45 @@ pub fn sky98_pow(
     nonce: u64,
     params: &PowParams,
 ) -> Matrix {
+    let trace = sky98_trace(seed, nonce, params);
+    trace
+        .rounds
+        .last()
+        .cloned()
+        .unwrap_or_else(|| trace.a0.clone())
+}
+
+/// Execute a full work unit while retaining each round output.
+pub fn sky98_trace(
+    seed: Seed,
+    nonce: u64,
+    params: &PowParams,
+) -> WorkTrace {
     let n = params.matrix_size;
     let rounds = params.rounds;
 
-    let (mut a, mut b) = seed_to_matrices(seed, nonce, n);
+    let (a0, b0) = seed_to_matrices(seed, nonce, n);
+    let mut a = a0.clone();
+    let mut b = b0.clone();
+    let mut round_outputs = Vec::with_capacity(rounds);
 
     for round in 0..rounds {
-        // 1) Matrix multiplication
         let mut c = a.mul(&b);
-
-        // 2) Apply σ element-wise
         c.map_inplace(sigma);
 
-        // 3) Apply deterministic mask
         let mask = Mask::new(seed.round_nonce_seed(round, nonce));
         mask.apply(&mut c);
 
-        // 4) Prepare next round
         a = c.clone();
         b = c.permute();
+        round_outputs.push(c);
     }
 
-    a
+    WorkTrace {
+        a0,
+        b0,
+        rounds: round_outputs,
+    }
 }
 
 /// Compute a compact work summary from a completed matrix result.
@@ -243,5 +267,20 @@ mod tests {
         let seed = Seed { value: 55 };
 
         assert_ne!(seed.round_nonce_seed(1, 10), seed.round_nonce_seed(1, 11));
+    }
+
+    #[test]
+    fn test_trace_matches_final_output() {
+        let params = PowParams {
+            matrix_size: 4,
+            rounds: 3,
+        };
+        let seed = Seed { value: 7 };
+        let nonce = 99;
+
+        let out = sky98_pow(seed, nonce, &params);
+        let trace = sky98_trace(seed, nonce, &params);
+
+        assert_eq!(trace.rounds.last(), Some(&out));
     }
 }
