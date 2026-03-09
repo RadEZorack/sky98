@@ -5,7 +5,7 @@ mod pow;
 mod verify;
 
 use pow::{evaluate_work, PowParams, Seed};
-use verify::verify_random_cells;
+use verify::{derive_challenge_seed, verify_random_cells};
 use std::time::{Instant};
 
 fn main() {
@@ -17,6 +17,7 @@ fn main() {
     let max_nonce: u64 = 1_000;       // search attempts in demo mode
     let verify_checks: usize = 8;     // verifier security
     let target_score: u32 = 16;       // demo acceptance threshold
+    let verifier_secret: u64 = 0xA11CE5EED1234567;
 
     let seed = Seed { value: 0xDEADBEEFCAFEBABE };
 
@@ -70,12 +71,21 @@ fn main() {
             for round in 0..rounds {
                 let mut c = a.mul(&b);
                 c.map_inplace(sigma::sigma);
+                let round_seed = seed.round_nonce_seed(round, nonce);
+                mask::Mask::new(round_seed).apply(&mut c);
+                let round_commitment = pow::summarize_work(&c).commitment;
+                let challenge_seed = derive_challenge_seed(
+                    round_seed,
+                    round_commitment,
+                    verifier_secret,
+                );
 
                 if !verify_random_cells(
                     &a,
                     &b,
                     &c,
-                    seed.round_seed(round),
+                    round_seed,
+                    challenge_seed,
                     verify_checks,
                 ) {
                     valid = false;

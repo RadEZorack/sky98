@@ -76,17 +76,19 @@ pub fn verify_round_cell(
 ///
 /// - `checks` controls security vs cost
 /// - Each check costs O(n)
+/// - `challenge_seed` should come from verifier-controlled randomness
 ///
 /// If any check fails, the proof is invalid.
 pub fn verify_random_cells(
     a_prev: &Matrix,
     b_prev: &Matrix,
     c_claimed: &Matrix,
-    seed: u64,
+    round_seed: u64,
+    challenge_seed: u64,
     checks: usize,
 ) -> bool {
     let n = a_prev.n;
-    let mut state = seed;
+    let mut state = challenge_seed;
 
     for _ in 0..checks {
         state = mix(state);
@@ -95,12 +97,24 @@ pub fn verify_random_cells(
         state = mix(state);
         let j = (state as usize) % n;
 
-        if !verify_round_cell(a_prev, b_prev, c_claimed, seed, i, j) {
+        if !verify_round_cell(a_prev, b_prev, c_claimed, round_seed, i, j) {
             return false;
         }
     }
 
     true
+}
+
+/// Derive verifier-only challenge randomness for sampled checks.
+///
+/// In a deployed network, `verifier_secret` should be unknown to the worker
+/// until after the work claim is submitted.
+pub fn derive_challenge_seed(
+    round_seed: u64,
+    matrix_commitment: u64,
+    verifier_secret: u64,
+) -> u64 {
+    mix(round_seed ^ matrix_commitment.rotate_left(17) ^ verifier_secret)
 }
 
 /// Deterministic mixing function for verifier randomness
@@ -192,7 +206,8 @@ mod tests {
         Mask::new(123).apply(&mut c);
 
         // Zero matrices remain valid after masking
-        assert!(verify_random_cells(&a, &b, &c, 123, 10));
+        let challenge_seed = derive_challenge_seed(123, 0xABCD, 0x9999);
+        assert!(verify_random_cells(&a, &b, &c, 123, challenge_seed, 10));
     }
 
     #[test]
@@ -224,5 +239,16 @@ mod tests {
         }
 
         panic!("expected at least one masked cell");
+    }
+
+    #[test]
+    fn test_challenge_seed_changes_with_secret() {
+        let round_seed = 88;
+        let commitment = 0x1234;
+
+        let a = derive_challenge_seed(round_seed, commitment, 1);
+        let b = derive_challenge_seed(round_seed, commitment, 2);
+
+        assert_ne!(a, b);
     }
 }

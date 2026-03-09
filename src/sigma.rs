@@ -11,11 +11,14 @@ use crate::matrix::Scalar;
 /// This function operates entirely in integer space.
 /// Arithmetic is wrapping by construction (mod 2^32).
 ///
-/// σ(x) = ((x <<< 13) XOR x) & 0xFFFF
+/// σ(x) is a reversible-looking 32-bit mixing function that preserves much
+/// more entropy than the original MVP version.
 #[inline]
 pub fn sigma(x: Scalar) -> Scalar {
-    let rotated = x.rotate_left(13);
-    (rotated ^ x) & 0xFFFF
+    let x1 = x ^ x.rotate_left(13) ^ 0x9E37_79B9;
+    let x2 = x1.wrapping_mul(0x85EB_CA6B);
+    let x3 = x2 ^ x2.rotate_right(11);
+    x3.wrapping_mul(0xC2B2_AE35) ^ x.rotate_right(7)
 }
 
 /// Apply σ element-wise to a slice
@@ -43,25 +46,23 @@ mod tests {
         assert_eq!(y, sigma(x));
 
         // σ should mutate the value
-        assert_ne!(x & 0xFFFF, y);
+        assert_ne!(x, y);
     }
 
     #[test]
     fn test_sigma_zero() {
-        assert_eq!(sigma(0), 0);
+        assert_ne!(sigma(0), 0);
     }
 
     #[test]
     fn test_sigma_distribution() {
-        // Ensure σ does not collapse many values
+        // Ensure σ does not collapse many values into a tiny output space.
         let mut seen = std::collections::HashSet::new();
         for x in 0..10_000u32 {
             seen.insert(sigma(x));
         }
 
-        // Very weak sanity check: collisions should exist,
-        // but output should not collapse to tiny space.
-        assert!(seen.len() > 1_000);
+        assert!(seen.len() > 9_900);
     }
 
     #[test]

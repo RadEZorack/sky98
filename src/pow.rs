@@ -34,6 +34,16 @@ impl Seed {
     pub fn round_seed(&self, round: usize) -> u64 {
         self.value ^ (round as u64).wrapping_mul(0x9E3779B97F4A7C15)
     }
+
+    /// Derive a per-attempt round seed so mask layouts vary across work units.
+    #[inline]
+    pub fn round_nonce_seed(&self, round: usize, nonce: u64) -> u64 {
+        mix(
+            self.round_seed(round)
+                ^ nonce.rotate_left((round % 63) as u32)
+                ^ 0xD6E8FEB86659FD93,
+        )
+    }
 }
 
 /// Deterministically generate initial matrices from a seed and nonce
@@ -92,7 +102,7 @@ pub fn sky98_pow(
         c.map_inplace(sigma);
 
         // 3) Apply deterministic mask
-        let mask = Mask::new(seed.round_seed(round));
+        let mask = Mask::new(seed.round_nonce_seed(round, nonce));
         mask.apply(&mut c);
 
         // 4) Prepare next round
@@ -226,5 +236,12 @@ mod tests {
         let (_, b) = evaluate_work(seed, 2, &params);
 
         assert_ne!(a.commitment, b.commitment);
+    }
+
+    #[test]
+    fn test_round_nonce_seed_changes_with_nonce() {
+        let seed = Seed { value: 55 };
+
+        assert_ne!(seed.round_nonce_seed(1, 10), seed.round_nonce_seed(1, 11));
     }
 }
