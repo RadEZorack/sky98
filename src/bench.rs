@@ -1,7 +1,8 @@
 use std::time::Duration;
 use std::time::Instant;
 
-use crate::pow::{sky98_trace, summarize_work, PowParams, Seed, WorkTrace};
+use crate::compute::{compute_backend_from_kind, ComputeBackendKind};
+use crate::pow::{summarize_work, PowParams, Seed, WorkTrace};
 use crate::verify::{derive_challenge_seed, verify_random_cells};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,30 +38,33 @@ pub struct BenchmarkResult {
 }
 
 pub fn benchmark_compute_phase(
+    backend_kind: ComputeBackendKind,
     seed: Seed,
     nonce: u64,
     params: &PowParams,
     iterations: usize,
-) -> (WorkTrace, PhaseMeasurement) {
+) -> Result<(WorkTrace, PhaseMeasurement), String> {
     assert!(iterations > 0, "iterations must be > 0");
 
     let mut total = Duration::ZERO;
     let mut last_trace = None;
+    let backend = compute_backend_from_kind(backend_kind);
+    let backend_label = backend.backend();
 
     for _ in 0..iterations {
         let start = Instant::now();
-        let trace = sky98_trace(seed, nonce, params);
+        let trace = backend.generate_trace(seed, nonce, params)?;
         total += start.elapsed();
         last_trace = Some(trace);
     }
 
-    (
+    Ok((
         last_trace.expect("at least one trace"),
         PhaseMeasurement {
-            backend: Backend::Cpu,
+            backend: backend_label,
             time: total / iterations as u32,
         },
-    )
+    ))
 }
 
 pub fn benchmark_trace_verify_phase(
@@ -92,14 +96,16 @@ pub fn benchmark_trace_verify_phase(
 /// Compute and verify are benchmarked as separate phases so future GPU/TPU
 /// backends can swap into the compute path without changing the report shape.
 pub fn benchmark_compute_vs_trace_verify(
+    compute_backend: ComputeBackendKind,
     seed: Seed,
     nonce: u64,
     params: &PowParams,
     verify_checks: usize,
     verifier_secret: u64,
     iterations: usize,
-) -> BenchmarkResult {
-    let (trace, compute) = benchmark_compute_phase(seed, nonce, params, iterations);
+) -> Result<BenchmarkResult, String> {
+    let (trace, compute) =
+        benchmark_compute_phase(compute_backend, seed, nonce, params, iterations)?;
     let verify = benchmark_trace_verify_phase(
         seed,
         nonce,
@@ -120,12 +126,12 @@ pub fn benchmark_compute_vs_trace_verify(
         compute.time.as_secs_f64() / verify.time.as_secs_f64()
     };
 
-    BenchmarkResult {
+    Ok(BenchmarkResult {
         compute,
         verify,
         ratio,
         final_commitment,
-    }
+    })
 }
 
 pub fn verify_trace(

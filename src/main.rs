@@ -1,4 +1,5 @@
 mod bench;
+mod compute;
 mod matrix;
 mod sigma;
 mod mask;
@@ -6,7 +7,8 @@ mod pow;
 mod verify;
 
 use bench::benchmark_compute_vs_trace_verify;
-use pow::{evaluate_work, PowParams, Seed};
+use compute::{compute_backend_from_kind, ComputeBackendKind};
+use pow::{PowParams, Seed};
 use std::env;
 use verify::{derive_challenge_seed, verify_random_cells};
 use std::time::{Instant};
@@ -22,12 +24,19 @@ fn main() {
     let target_score: u32 = env_parse("SKY98_TARGET_SCORE", 16);
     let benchmark_iterations: usize = env_parse("SKY98_BENCH_ITERS", 5);
     let verifier_secret: u64 = env_parse("SKY98_VERIFIER_SECRET", 0xA11CE5EED1234567);
+    let compute_backend = env_compute_backend("SKY98_COMPUTE_BACKEND", ComputeBackendKind::Cpu);
     let report_mode = env_flag("SKY98_REPORT");
 
     let seed = Seed { value: 0xDEADBEEFCAFEBABE };
 
     if report_mode {
-        run_report_mode(seed, verify_checks, benchmark_iterations, verifier_secret);
+        run_report_mode(
+            compute_backend,
+            seed,
+            verify_checks,
+            benchmark_iterations,
+            verifier_secret,
+        );
         return;
     }
 
@@ -44,16 +53,19 @@ fn main() {
     println!("Verify checks: {}", verify_checks);
     println!("Target score: {}", target_score);
     println!("Benchmark iters: {}", benchmark_iterations);
+    println!("Compute backend: {}", compute_backend_label(compute_backend));
     println!("-----------------------------");
 
     let benchmark = benchmark_compute_vs_trace_verify(
+        compute_backend,
         seed,
         0,
         &params,
         verify_checks,
         verifier_secret,
         benchmark_iterations,
-    );
+    )
+    .unwrap_or_else(|err| panic!("benchmark failed: {}", err));
     println!("Benchmark (avg over {} runs)", benchmark_iterations);
     println!(
         "Compute [{}]: {:.2?}",
@@ -77,7 +89,15 @@ fn main() {
     for nonce in 0..max_nonce {
         let pow_start = Instant::now();
 
-        let (result, summary) = evaluate_work(seed, nonce, &params);
+        let trace = compute_backend_from_kind(compute_backend)
+            .generate_trace(seed, nonce, &params)
+            .unwrap_or_else(|err| panic!("compute backend failed: {}", err));
+        let result = trace
+            .rounds
+            .last()
+            .cloned()
+            .unwrap_or_else(|| trace.a0.clone());
+        let summary = pow::summarize_work(&result);
 
         let pow_time = pow_start.elapsed();
 
@@ -96,17 +116,13 @@ fn main() {
             println!("Verifying sampled round transitions...");
 
             // Recompute previous round matrices for verification
-            let (a0, b0) = pow::seed_to_matrices(seed, nonce, matrix_size);
-            let mut a = a0;
-            let mut b = b0;
+            let mut a = trace.a0.clone();
+            let mut b = trace.b0.clone();
 
             let mut valid = true;
 
-            for round in 0..rounds {
-                let mut c = a.mul(&b);
-                c.map_inplace(sigma::sigma);
+            for (round, c) in trace.rounds.iter().enumerate() {
                 let round_seed = seed.round_nonce_seed(round, nonce);
-                mask::Mask::new(round_seed).apply(&mut c);
                 let round_commitment = pow::summarize_work(&c).commitment;
                 let challenge_seed = derive_challenge_seed(
                     round_seed,
@@ -117,7 +133,7 @@ fn main() {
                 if !verify_random_cells(
                     &a,
                     &b,
-                    &c,
+                    c,
                     round_seed,
                     challenge_seed,
                     verify_checks,
@@ -170,6 +186,16 @@ fn env_flag(key: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn env_compute_backend(
+    key: &str,
+    default: ComputeBackendKind,
+) -> ComputeBackendKind {
+    env::var(key)
+        .ok()
+        .and_then(|value| ComputeBackendKind::from_env(value.trim()))
+        .unwrap_or(default)
+}
+
 fn env_parse_list<T>(key: &str, default: &[T]) -> Vec<T>
 where
     T: std::str::FromStr + Copy,
@@ -192,6 +218,7 @@ where
 }
 
 fn run_report_mode(
+    compute_backend: ComputeBackendKind,
     seed: Seed,
     verify_checks: usize,
     benchmark_iterations: usize,
@@ -202,7 +229,13 @@ fn run_report_mode(
     let nonce: u64 = env_parse("SKY98_REPORT_NONCE", 0);
 
     println!("Sky98 Benchmark Report");
-    println!("verify_checks={} bench_iters={} nonce={}", verify_checks, benchmark_iterations, nonce);
+    println!(
+        "backend={} verify_checks={} bench_iters={} nonce={}",
+        compute_backend_label(compute_backend),
+        verify_checks,
+        benchmark_iterations,
+        nonce
+    );
     println!();
     println!(
         "{:<8} {:<8} {:<16} {:<16} {:<10} {:<8} {:<8}",
@@ -223,13 +256,15 @@ fn run_report_mode(
                 rounds: *rounds,
             };
             let result = benchmark_compute_vs_trace_verify(
+                compute_backend,
                 seed,
                 nonce,
                 &params,
                 verify_checks,
                 verifier_secret,
                 benchmark_iterations,
-            );
+            )
+            .unwrap_or_else(|err| panic!("report benchmark failed: {}", err));
 
             println!(
                 "{:<8} {:<8} {:<16} {:<16} {:<10.1} {:<8} {:<8}",
@@ -242,6 +277,13 @@ fn run_report_mode(
                 result.verify.backend.label(),
             );
         }
+    }
+}
+
+fn compute_backend_label(kind: ComputeBackendKind) -> &'static str {
+    match kind {
+        ComputeBackendKind::Cpu => "cpu",
+        ComputeBackendKind::Metal => "metal",
     }
 }
 

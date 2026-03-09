@@ -91,6 +91,7 @@ pub fn seed_to_matrices(
 /// - Maps cleanly to GPU/TPU pipelines
 ///
 /// Returns the final matrix F_r
+#[allow(dead_code)]
 pub fn sky98_pow(
     seed: Seed,
     nonce: u64,
@@ -149,6 +150,7 @@ pub fn summarize_work(matrix: &Matrix) -> WorkResult {
 }
 
 /// Execute a full work unit and return both the final matrix and its summary.
+#[allow(dead_code)]
 pub fn evaluate_work(
     seed: Seed,
     nonce: u64,
