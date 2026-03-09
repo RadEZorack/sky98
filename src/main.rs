@@ -22,8 +22,14 @@ fn main() {
     let target_score: u32 = env_parse("SKY98_TARGET_SCORE", 16);
     let benchmark_iterations: usize = env_parse("SKY98_BENCH_ITERS", 5);
     let verifier_secret: u64 = env_parse("SKY98_VERIFIER_SECRET", 0xA11CE5EED1234567);
+    let report_mode = env_flag("SKY98_REPORT");
 
     let seed = Seed { value: 0xDEADBEEFCAFEBABE };
+
+    if report_mode {
+        run_report_mode(seed, verify_checks, benchmark_iterations, verifier_secret);
+        return;
+    }
 
     let params = PowParams {
         matrix_size,
@@ -156,4 +162,95 @@ where
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(default)
+}
+
+fn env_flag(key: &str) -> bool {
+    env::var(key)
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(false)
+}
+
+fn env_parse_list<T>(key: &str, default: &[T]) -> Vec<T>
+where
+    T: std::str::FromStr + Copy,
+{
+    match env::var(key) {
+        Ok(value) => {
+            let parsed: Vec<T> = value
+                .split(',')
+                .filter_map(|part| part.trim().parse().ok())
+                .collect();
+
+            if parsed.is_empty() {
+                default.to_vec()
+            } else {
+                parsed
+            }
+        }
+        Err(_) => default.to_vec(),
+    }
+}
+
+fn run_report_mode(
+    seed: Seed,
+    verify_checks: usize,
+    benchmark_iterations: usize,
+    verifier_secret: u64,
+) {
+    let matrix_sizes = env_parse_list("SKY98_REPORT_MATRIX_SIZES", &[128usize, 192, 256, 320]);
+    let rounds_list = env_parse_list("SKY98_REPORT_ROUNDS", &[4usize, 8, 12]);
+    let nonce: u64 = env_parse("SKY98_REPORT_NONCE", 0);
+
+    println!("Sky98 Benchmark Report");
+    println!("verify_checks={} bench_iters={} nonce={}", verify_checks, benchmark_iterations, nonce);
+    println!();
+    println!(
+        "{:<8} {:<8} {:<16} {:<16} {:<10} {:<8} {:<8}",
+        "matrix",
+        "rounds",
+        "compute",
+        "verify",
+        "ratio",
+        "c_be",
+        "v_be"
+    );
+    println!("{}", "-".repeat(82));
+
+    for matrix_size in matrix_sizes {
+        for rounds in &rounds_list {
+            let params = PowParams {
+                matrix_size,
+                rounds: *rounds,
+            };
+            let result = benchmark_compute_vs_trace_verify(
+                seed,
+                nonce,
+                &params,
+                verify_checks,
+                verifier_secret,
+                benchmark_iterations,
+            );
+
+            println!(
+                "{:<8} {:<8} {:<16} {:<16} {:<10.1} {:<8} {:<8}",
+                matrix_size,
+                rounds,
+                format_duration(result.compute.time),
+                format_duration(result.verify.time),
+                result.ratio,
+                result.compute.backend.label(),
+                result.verify.backend.label(),
+            );
+        }
+    }
+}
+
+fn format_duration(duration: std::time::Duration) -> String {
+    if duration.as_secs_f64() >= 1.0 {
+        format!("{:.2}s", duration.as_secs_f64())
+    } else if duration.as_millis() > 0 {
+        format!("{:.2}ms", duration.as_secs_f64() * 1_000.0)
+    } else {
+        format!("{:.2}us", duration.as_secs_f64() * 1_000_000.0)
+    }
 }
